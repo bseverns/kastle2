@@ -1,9 +1,14 @@
 # Code build
 code/build/
 code/docs/output/
+build/
+build-*/
 
 # Pico SDK
 code/pico-sdk/
+
+# Local toolchain and helper binaries
+tools/
 
 # Bitwig
 bitwigPrototype/glitchFXkastle/auto-backups
