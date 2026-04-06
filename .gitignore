@@ -1,9 +1,19 @@
 # Code build
 code/build/
 code/docs/output/
+build/
+build-*/
 
 # Pico SDK
 code/pico-sdk/
+
+# Local embedded toolchain and helper unpack dirs
+tools/arm-gnu-toolchain/
+tools/arm-toolchain-pkg/
+tools/picotool/
+tools/picotool-build/
+tools/picotool-src/
+tools/picotool-subbuild/
 
 # Bitwig
 bitwigPrototype/glitchFXkastle/auto-backups
