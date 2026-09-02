@@ -28,6 +28,10 @@ SOFTWARE.
 
 using namespace kastle2;
 
+#define SWING_EVEN_CONTINOUS 1  // Inverted each step number (can be unpredictable when turning the swing on/off)
+#define SWING_EVEN_CONSISTENT 2 // Calculated from actual step number (always reflects the steps)
+#define SWING_EVEN SWING_EVEN_CONSISTENT
+
 void Sequencer::Init(const size_t length)
 {
     reaching_next_cycle_ = false;
@@ -58,6 +62,13 @@ void Sequencer::Reset()
 {
     current_step_ = 0;
     reaching_next_cycle_ = false;
+
+    // A swing step still waiting to fire belongs to the position we just left, keeping
+    // it would advance us off step 0 right after the reset.
+    CancelSwingStep();
+    swing_even_step_ = false;
+    humanize_index_ = 0;
+
     UpdateCvOutput();
     UpdateTriggerOutput();
 }
@@ -65,6 +76,11 @@ void Sequencer::Reset()
 void Sequencer::RealignTo(const size_t steps)
 {
     current_step_ = steps % length_;
+
+    // The realigned position supersedes a swing step still waiting to fire, letting it
+    // through would immediately advance us one step past where we were told to be.
+    CancelSwingStep();
+
     UpdateCvOutput();
     UpdateTriggerOutput();
 }
@@ -72,6 +88,12 @@ void Sequencer::RealignTo(const size_t steps)
 void Sequencer::NextStep(const Feed trigger_feed, const Feed cv_feed)
 {
     reaching_next_cycle_ = false;
+
+    // This call consumes whatever swing step was scheduled, no matter who triggered it.
+    // Without this a step fired ahead of its delay (tempo jump) would still be fired a
+    // second time by ProcessSwingTick().
+    CancelSwingStep();
+
     current_step_ = (current_step_ + 1) % length_;
 
     // Read current trigger
@@ -150,6 +172,12 @@ bool Sequencer::ReachingNextCycle()
 
 bool Sequencer::GetTriggerOutput() const
 {
+    // While a swing step is pending the audible trigger has to be silenced;
+    // it will be re-issued by the delayed NextStep() call.
+    if (swing_pending_)
+    {
+        return false;
+    }
     return trigger_output_;
 }
 
@@ -184,4 +212,87 @@ void Sequencer::SetTriggerGeneratorTable(std::span<const uint32_t> table)
 uint32_t Sequencer::GetCvOutput() const
 {
     return cv_output_;
+}
+
+void Sequencer::SetSwing(float value)
+{
+    swing_value_ = value;
+
+    // Pre-compute the swing type and the normalized strength so the
+    // audio thread never has to do float compares or multiplies.
+    if (value > kSwingActiveThreshold)
+    {
+        swing_type_ = SwingType::SWING;
+        // Normalize so swing_amount_ reaches 1.0 at value == 1.0
+        swing_amount_ = (value - kSwingActiveThreshold) / (1.0f - kSwingActiveThreshold);
+    }
+    else if (value < kSwingHumanizeThreshold)
+    {
+        swing_type_ = SwingType::HUMANIZE;
+        // Normalize so swing_amount_ reaches 1.0 at value == 0.0
+        swing_amount_ = (kSwingHumanizeThreshold - value) / kSwingHumanizeThreshold;
+    }
+    else
+    {
+        swing_type_ = SwingType::NONE;
+        swing_amount_ = 0.0f;
+    }
+}
+
+void Sequencer::ScheduleSwingStep(uint32_t step_ticks)
+{
+    uint32_t delay = 0;
+
+    switch (swing_type_)
+    {
+    case SwingType::SWING:
+    {
+// Handles different swing "even step" methods:
+#if SWING_EVEN == SWING_EVEN_CONTINOUS
+        const bool even_step = (swing_even_step_);
+#elif SWING_EVEN == SWING_EVEN_CONSISTENT
+        const bool even_step = (current_step_ % 2 == 0);
+#endif
+        if (even_step)
+        {
+            // Cap delay at half a step so even steps stay before the midpoint
+            // to the next odd step (musically meaningful swing range).
+            delay = static_cast<uint32_t>(step_ticks * swing_amount_ * 0.5f);
+        }
+    }
+    break;
+
+    case SwingType::HUMANIZE:
+    {
+        const float factor = kHumanizePattern[humanize_index_];
+        humanize_index_ = (humanize_index_ + 1) % kHumanizePattern.size();
+        delay = static_cast<uint32_t>(step_ticks * swing_amount_ * factor);
+        break;
+    }
+
+    case SwingType::NONE:
+    default:
+        break;
+    }
+
+    swing_delay_counter_ = delay;
+    swing_pending_ = true;
+    swing_even_step_ = !swing_even_step_;
+}
+
+bool Sequencer::ProcessSwingTick()
+{
+    if (!swing_pending_)
+    {
+        return false;
+    }
+
+    if (swing_delay_counter_ > 0)
+    {
+        swing_delay_counter_--;
+        return false;
+    }
+
+    swing_pending_ = false;
+    return true;
 }

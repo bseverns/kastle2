@@ -9,8 +9,9 @@ Comes with open-source codebase (including two official firmwares) and schematic
 
 ## How to develop for Kastle 2
 
-Read [Toolchain Install Guide](TOOLCHAIN_INSTALL.md), [Coding Style Guide](CODING_STYLE.md) and [Glossary & Examples](GLOSSARY_EXAMPLES.md).  
-Any questions or weird stuff hapenning? See the [FAQ](FAQ.md) or discuss your experience on our [Discord server](https://discord.com/invite/C4RXRjgYJ6).
+Read [Toolchain Install Guide](TOOLCHAIN_INSTALL.md), [Coding Style Guide](CODING_STYLE.md) and [Glossary & Examples](GLOSSARY_EXAMPLES.md), or dive through the generated [Code Documentation](http://apps.bastl-instruments.com/kastle2-docs).
+ 
+Any questions or weird stuff hapenning? See the [FAQ](FAQ.md) or discuss your experience on our [Discord server](https://discord.com/invite/C4RXRjgYJ6). 
 
 ## Specifications
 
@@ -89,7 +90,7 @@ Thanks to Majkel ([@tenmajkl](https://github.com/tenmajkl)) with help around doc
 **Code**  
 MIT license
 
-**Schematics, Documentation**  
+**Schematics, Documentation, Templates, Printable 3D files**  
 CC BY SA 4.0 license
 
 **Voice recordings (Version, Calibration, Test Mode)**  
@@ -102,3 +103,5 @@ All rights reserved
 All rights reserved
 
 *Note: You are welcome to create derived products based on the schematics and software. However, Bastl retains proprietary rights to the board layout, which is not publicly available. This prevents simple product cloning and maintains the integrity of the original Kastle 2. By purchasing an original Bastl Instruments Kastle 2 you support ongoing development.*
+
+*Regarding samples: The SAMPLES.BIN file in the repository should not be commercially distributed as part of a custom-built firmware, nor separately, as it is marked “All rights reserved.” However, using the official compiled firmware provided by Bastl (which includes the samples) is fine.*

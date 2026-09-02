@@ -79,18 +79,20 @@ consteval q31_t q31(const T x)
 }
 
 /**
- * @brief Inverts a Q31 number.
- * @param x The input number.
- * @return The inverted number.
+ * @brief Returns an inverted unipolar value in Q31 format.
+ * @param x The input number, expected between 0 and 1 in Q31 format.
+ * @return The inverted value (1-x), clamped to the 0 to 1 range.
  */
 inline constexpr q31_t q31_inv(const q31_t x)
 {
-    // Handle overflow
-    if (x == Q31_MIN)
+    if (x < 0)
     {
         return Q31_MAX;
     }
-    return Q31_MAX - x;
+    else
+    {
+        return Q31_MAX - x;
+    }
 }
 
 /**
@@ -147,14 +149,25 @@ inline constexpr q15_t q15_saturate(const q15_t x)
 }
 
 /**
- * @brief Inverts a Q15 number.
- * @param x The input number.
- * @return The inverted number.
+ * @brief Returns an inverted unipolar value in Q15 format.
+ * @param x The input number, expected between 0 and 1 in Q15 format.
+ * @return The inverted value (1-x), clamped to the 0 to 1 range.
  */
 inline constexpr q15_t q15_inv(const q15_t x)
 {
-    q15_t y = Q15_MAX - x;
-    return q15_saturate(y);
+    if (x < 0)
+    {
+        return Q15_MAX;
+    }
+    else if (x > Q15_MAX)
+    {
+        // This should never happen since we expect x to be valid Q15 number, but just in case...
+        return 0;
+    }
+    else
+    {
+        return Q15_MAX - x;
+    }
 }
 
 /**
@@ -321,16 +334,8 @@ inline constexpr q31_t q31_div(const q31_t a, const q31_t b)
 inline constexpr q31_t float_to_q31(const float a)
 {
     // Implement constrain logic inline to ensure it's always constexpr compatible
-    float value = a;
-    if (value > 1.0f)
-    {
-        value = 1.0f;
-    }
-    if (value < 0.0f)
-    {
-        value = 0.0f;
-    }
-    return (q31_t)(value * 2147483648.0f);
+    float value = constrain(a, -1.0f, 1.0f);
+    return static_cast<q31_t>(value * 2147483648.0f);
 }
 
 /**
@@ -340,7 +345,7 @@ inline constexpr q31_t float_to_q31(const float a)
  */
 inline constexpr float q31_to_float(const q31_t a)
 {
-    return (float)a / 2147483648.0f;
+    return static_cast<float>(a) / 2147483648.0f;
 }
 
 /**
@@ -350,17 +355,8 @@ inline constexpr float q31_to_float(const q31_t a)
  */
 inline constexpr q15_t float_to_q15(const float a)
 {
-    // Implement constrain logic inline to ensure it's always constexpr compatible
-    float value = a;
-    if (value > 1.0f)
-    {
-        value = 1.0f;
-    }
-    if (value < 0.0f)
-    {
-        value = 0.0f;
-    }
-    return (q31_t)(value * 32767.0f);
+    float value = constrain(a, -1.0f, 1.0f);
+    return static_cast<q15_t>(value * 32767.0f);
 }
 
 /**
@@ -370,7 +366,7 @@ inline constexpr q15_t float_to_q15(const float a)
  */
 inline constexpr float q15_to_float(const q15_t a)
 {
-    return (float)a / 32767.0f;
+    return static_cast<float>(a) / 32767.0f;
 }
 
 /**

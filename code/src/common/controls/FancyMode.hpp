@@ -83,8 +83,9 @@ public:
         uint8_t midi_attenuator_cc = NO_MIDI;                          ///< MIDI CC for attenuator control, 0xFF = no MIDI (default)
         uint8_t midi_output_cc = NO_MIDI;                              ///< Outputs the value mapped to 0-127
         FancyPot::MidiNoteControl midi_note_control = {};              ///< MIDI note control
-        Hardware::AnalogInput adc_input = Hardware::AnalogInput::MODE; ///< ADC input to read the mode from
         Hardware::Pot attenuator_pot = Hardware::Pot::POT_4;           ///< Potentiometer to use as an attenuator for the mode input
+        Hardware::AnalogInput adc_input = Hardware::AnalogInput::MODE; ///< ADC input to read the mode from
+        Hardware::Layer attenuator_layer = Hardware::Layer::MODE;      ///< Layer to use for the attenuator pot
         InputReading input_reading = InputReading::CONTINUOUS;         ///< How to read the cv mode input
         InputReading midi_input_reading = InputReading::CONTINUOUS;    ///< How to read the midi mode input
     };
@@ -187,6 +188,7 @@ public:
     void DisableNextChangeWhen(const Container &all_pots, uint32_t over_ticks = 0)
     {
         tweak_pots_.clear();
+        AddBaseTweakPots();
         for (const auto &pot : all_pots)
         {
             if (pot && pot->GetLayer() == Hardware::Layer::MODE)
@@ -230,6 +232,11 @@ private:
     uint32_t over_ticks_ = 0;            ///< If defined we will disable next change when the current layer time is over this number of ticks
 
     uint32_t adc_input_value_ = 0; ///< Current input value from the ADC, used for mode calculation
+
+    /**
+     * @brief Adds the pots from the Base that should be used to disable the next change when they are moved.
+     */
+    void AddBaseTweakPots();
 };
 
 }

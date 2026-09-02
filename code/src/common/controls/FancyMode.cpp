@@ -39,7 +39,7 @@ void FancyMode::Init(uint32_t modes_count)
 {
     attenuator_ = FancyPot::Create({
         .pot = config_.attenuator_pot,         ///< Center pot
-        .layer = Hardware::Layer::MODE,        ///< When holding MODE button
+        .layer = config_.attenuator_layer,     ///< When holding MODE button
         .initial_value = POT_MAX,              ///< No attenuation by default
         .midi_cc = config_.midi_attenuator_cc, ///< MIDI CC for attenuator control
     });
@@ -50,6 +50,7 @@ void FancyMode::Init(uint32_t modes_count)
     SetModesCount(modes_count);
     LoadFromMemory();
     RecalculateMode();
+    AddBaseTweakPots();
 }
 
 void FancyMode::Process()
@@ -217,7 +218,8 @@ void FancyMode::TriggerAdcRead()
     {
         return;
     }
-    adc_input_value_ = apply_pot_mod(Kastle2::hw.GetAnalogValue(config_.adc_input), attenuator_->GetValue());
+    adc_input_value_ = apply_pot_mod(Kastle2::hw.GetAnalogValue(config_.adc_input),
+                                     Kastle2::base.GetLfoMod().AdjustWithMod(attenuator_.get(), attenuator_->GetValue()));
 }
 
 void FancyMode::TriggerMidiRead()
@@ -285,6 +287,18 @@ void FancyMode::SaveToMemory()
     if (config_.memory_addr != NO_MEMORY)
     {
         Kastle2::memory.Write8(config_.memory_addr, selected_mode_);
+    }
+}
+
+void FancyMode::AddBaseTweakPots()
+{
+    auto &base_pots = Kastle2::base.GetPots();
+    for (const auto &pot : base_pots)
+    {
+        if (pot && pot->GetLayer() == Hardware::Layer::MODE)
+        {
+            tweak_pots_.push_back(pot.get());
+        }
     }
 }
 

@@ -24,8 +24,10 @@ SOFTWARE.
 
 #pragma once
 
+#include <array>
 #include <bitset>
 #include <cstddef>
+#include <cstdint>
 #include <span>
 #include "TriggerGenerator.hpp"
 
@@ -163,6 +165,89 @@ public:
     bool ReachingNextCycle();
 
     /**
+     * @enum SwingType
+     * @brief Describes how the sequencer offsets its steps in time based on the swing pot.
+     */
+    enum class SwingType
+    {
+        NONE,     ///< No timing modification
+        SWING,    ///< Classic swing: even steps are delayed
+        HUMANIZE  ///< Pseudo-random per-step jitter
+    };
+
+    /**
+     * @brief Sets the raw swing pot value (0.0 - 1.0).
+     *
+     * Pre-computes the resulting SwingType and the normalized swing strength
+     * (0.0 - 1.0) so that the hot path in NextStep/scheduling avoids float compares.
+     *
+     * @param value Raw normalized pot value in [0.0, 1.0].
+     */
+    void SetSwing(float value);
+
+    /**
+     * @brief Gets the raw swing pot value (0.0 - 1.0).
+     */
+    float GetSwing() const { return swing_value_; }
+
+    /**
+     * @brief Gets the cached swing type (computed in SetSwing()).
+     */
+    SwingType GetSwingType() const { return swing_type_; }
+
+    /**
+     * @brief Gets the cached normalized swing strength.
+     * @return 0.0 at the dead zone, reaching 1.0 at the extremes.
+     *         For SWING this is (swing - kSwingActiveThreshold) / (1.0 - kSwingActiveThreshold).
+     *         For HUMANIZE this is (kSwingHumanizeThreshold - swing) / kSwingHumanizeThreshold.
+     */
+    float GetSwingAmount() const { return swing_amount_; }
+
+    /**
+     * @brief Schedules a delayed advance of the sequencer for the next clock tick.
+     * @param step_ticks Number of clock ticks of one step (used as delay reference).
+     */
+    void ScheduleSwingStep(uint32_t step_ticks);
+
+    /**
+     * @brief Advances the swing-delay counter; call once per clock tick.
+     * @return True when the previously scheduled swing step should fire now.
+     */
+    bool ProcessSwingTick();
+
+    /**
+     * @brief Is a swing step scheduled and still waiting to fire?
+     */
+    bool IsSwingStepPending() const { return swing_pending_; }
+
+    /**
+     * @brief Returns true a tiny bit before a scheduled swing step fires.
+     *
+     * The swing counterpart of Clock::IsReachingNextCycle(): while swing is active the
+     * step no longer lands on the clock grid, so the CV lookahead has to follow the
+     * swung position instead of the clock's.
+     */
+    bool IsReachingSwungStep() const { return swing_pending_ && swing_delay_counter_ <= kCvLookaheadTicks; }
+
+    /**
+     * @brief How many ticks before a step the CV output is published.
+     *
+     * Matches the largest lookahead of the clock sources so a swung step gets the same
+     * settling headroom the straight grid gets from Clock::IsReachingNextCycle().
+     */
+    static constexpr uint32_t kCvLookaheadTicks = 3;
+
+    /**
+     * @brief Lower bound of the swing pot dead zone.
+     */
+    static constexpr float kSwingHumanizeThreshold = 0.45f;
+
+    /**
+     * @brief Upper bound of the swing pot dead zone.
+     */
+    static constexpr float kSwingActiveThreshold = 0.55f;
+
+    /**
      * @brief Minimum number of steps supported by the sequencer.
      */
     static constexpr size_t kMinLength = 2;
@@ -185,6 +270,15 @@ public:
     static constexpr uint32_t kVoltageMap[8] = {0, 320, 480, 600, 720, 800, 880, 1020};
 
 private:
+    /**
+     * @brief Drops a scheduled swing step without firing it.
+     */
+    void CancelSwingStep()
+    {
+        swing_pending_ = false;
+        swing_delay_counter_ = 0;
+    }
+
     /**
      * @brief Updates the CV output based on current CV bit pattern.
      */
@@ -234,5 +328,25 @@ private:
      * @brief Flag indicating if CV is being prepared for the next cycle.
      */
     bool reaching_next_cycle_ = false;
+
+    /**
+     * @brief Humanize intensity multiplier applied to every entry in kHumanizePattern.
+     */
+    static constexpr float kHumanizeIntensity = 4.0f;
+
+    /**
+     * @brief Pre-baked humanize delay coefficients.
+     */
+    static constexpr std::array<float, 8> kHumanizePattern = {
+        0.1f * kHumanizeIntensity,  0.05f * kHumanizeIntensity, 0.08f * kHumanizeIntensity, 0.02f * kHumanizeIntensity,
+        0.1f * kHumanizeIntensity,  0.05f * kHumanizeIntensity, 0.03f * kHumanizeIntensity, 0.09f * kHumanizeIntensity};
+
+    float swing_value_ = 0.5f;
+    float swing_amount_ = 0.0f;
+    SwingType swing_type_ = SwingType::NONE;
+    uint32_t swing_delay_counter_ = 0;
+    bool swing_pending_ = false;
+    bool swing_even_step_ = false;
+    size_t humanize_index_ = 0;
 };
 }

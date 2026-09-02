@@ -27,12 +27,14 @@ SOFTWARE.
 #include <bitset>
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 #include "common/controls/FancyPot.hpp"
 #include "common/core/Clock.hpp"
 #include "common/core/Codec.hpp"
 #include "common/core/FakeBlinker.hpp"
 #include "common/core/Hardware.hpp"
 #include "common/core/Kastle2_parameters.hpp"
+#include "common/core/LfoMod.hpp"
 #include "common/core/Memory.hpp"
 #include "common/core/midi/Message.hpp"
 #include "common/dsp/control/AdsrEnv.hpp"
@@ -77,6 +79,7 @@ public:
         AUDIO_CHAIN,           ///< Audio chain (input -> output), disable in processing the audio by yourself.
         MIDI_CLOCK,            ///< MIDI input clock handling.
         GATE_INDICATION,       ///< Gate indication on the top right LED.
+        LFO_MOD_MAPPING,       ///< LFO modulation mapping to pots (SHIFT + POT).
         COUNT
     };
 
@@ -147,10 +150,34 @@ public:
     Sequencer &GetSequencer();
 
     /**
+     * @brief Did the sequencer move to a new step in this audio loop?
+     *
+     * The swing aware counterpart of Clock::IsNowTrigger(). With swing active the step no
+     * longer lands on the clock tick, so apps that want to stay in time with what the
+     * sequencer actually plays should quantize to this instead of to the raw clock.
+     * Covers every way the sequencer can move: the plain clock tick, the delayed swing
+     * step and a reset.
+     *
+     * @note Set in BeforeAudioLoop() and valid for the rest of that audio loop, so read it
+     *       from the app audio loop. The UI loop runs at its own rate and will miss steps.
+     * @return True on the single audio loop the step started on.
+     */
+    bool IsNowStep() const;
+
+    /**
      * Returns the LFO object
      * @return Lfo& Reference to the LFO object.
      */
     Lfo &GetLfo();
+
+    /**
+     * @brief Returns the LfoMod object
+     * @return LfoMod& Reference to the LfoMod object.
+     */
+    LfoMod &GetLfoMod()
+    {
+        return lfo_mod_;
+    }
 
     /**
      * @brief Set the HP amp output volume in range 0-63. Ideally keep it under 60 to prevent noise etc.
@@ -232,7 +259,79 @@ public:
         return input_envelope_follower_;
     }
 
+    /**
+     * @brief Base Potentiometers
+     */
+    // Pots
+    enum class Pot
+    {
+        TEMPO,
+        INPUT,
+        LFO,
+        LFO_MOD,
+        OUTPUT,
+        RHYTHM,
+        SWING,
+        SETTINGS_MONO_INPUT,
+        SETTINGS_SYNC_INPUT,
+        SETTINGS_LFO_MOD,
+        SETTINGS_NORMAL_2,
+        SETTINGS_NORMAL_4,
+        SETTINGS_NORMAL_6,
+        SETTINGS_SHIFT_1,
+        SETTINGS_SHIFT_2,
+        SETTINGS_SHIFT_3,
+        SETTINGS_SHIFT_4,
+        SETTINGS_SHIFT_5,
+        SETTINGS_SHIFT_6,
+        SETTINGS_SHIFT_7,
+        SETTINGS_MODE_1,
+        SETTINGS_MODE_2,
+        SETTINGS_MODE_3,
+        SETTINGS_MODE_4,
+        SETTINGS_MODE_5,
+        SETTINGS_MODE_6,
+        SETTINGS_MODE_7,
+        COUNT
+    };
+
+    /**
+     * @brief Returns the array of FancyPot instances for the base pots.
+     * @return EnumArray<Pot, std::unique_ptr<FancyPot>>& Reference to the array of FancyPot instances.
+     */
+    inline const EnumArray<Pot, std::unique_ptr<FancyPot>> &GetPots()
+    {
+        return pots_;
+    }
+
+    /**
+     * @brief Enables or disables selecting multiple LFO modulation destinations from settings pots.
+     * @param enabled True to allow selecting the destinations, false to block selection from UI pots.
+     * @param destinations Destinations to enable or disable. (multiple can be written, e.g. LfoMod::Destination::NORMAL_1, LfoMod::Destination::NORMAL_2)
+     */
+    template <typename... Destination>
+    void SetLfoModSelectionEnabled(bool enabled, Destination... destinations)
+    {
+        static_assert((std::is_same_v<std::remove_cv_t<std::remove_reference_t<Destination>>, LfoMod::Destination> && ...),
+                      "All arguments must be LfoMod::Destination");
+
+        (SetLfoModSelectionEnabledSingle(enabled, destinations), ...);
+    }
+
+    /**
+     * @brief Enables or disables selecting all LFO modulation destinations from settings pots.
+     * @param enabled True to allow all destinations, false to block all destinations.
+     */
+    void SetAllLfoModSelectionEnabled(bool enabled);
+
+    /**
+     * @brief Resets the LFO modulation selection to the default state. (all secondary enabled + lfo mod)
+     */
+    void SetLfoModDefaultSelectionEnabled();
+
 private:
+    void SetLfoModSelectionEnabledSingle(bool enabled, LfoMod::Destination destination);
+
     // How much amplify the input volume
     static constexpr int8_t kInputGainShiftLeft = 3;
 
@@ -247,6 +346,7 @@ private:
     uint32_t lfo_mod_state_prev = 0;
     uint32_t lfo_change_timer_ = 0;
     bool lfo_last_timer_source_ = false;
+    LfoMod lfo_mod_;
 
     // Main tempo of the device
     Clock clock_;
@@ -258,6 +358,17 @@ private:
     // Outputs
     void UpdateCvOut();
     void UpdateGateOut();
+
+    /**
+     * @brief (Re)starts the gate countdown. Call whenever the sequencer advances a step.
+     */
+    void StartGate();
+
+    /**
+     * @brief Everything that has to happen the moment the sequencer moves to a new step,
+     *        no matter what moved it (clock tick, delayed swing step, reset).
+     */
+    void OnStepStarted();
 
     // Keeping the value here to handle hysteresis
     bool lfo_sync_ = false;
@@ -275,9 +386,26 @@ private:
     Sequencer sequencer_;
     EdgeDetector sequencer_edge_detector_{EdgeDetector::Type::RISING};
 
+    Sequencer::Feed pending_trigger_feed_ = Sequencer::Feed::SAME;
+    Sequencer::Feed pending_cv_feed_ = Sequencer::Feed::SAME;
+
+    // Ticks left of the current gate. Counted from the step that actually fired rather
+    // than from the clock cycle, so a swung step still gets its full gate length.
+    uint32_t gate_ticks_remaining_ = 0;
+
+    // Set for the single audio loop the sequencer moved on, see IsNowStep().
+    bool step_now_ = false;
+
+    int32_t rhythm_modulation_prev_ = 0;
+    int32_t swing_modulation_prev_ = 0;
+
     // Volumes
     q15_t sw_input_gain_ = 0;
     q15_t sw_output_gain_ = 0;
+    q15_t input_amplitude_divider_ = Q15_MAX;
+    q15_t input_amplitude_multipler_ = Q15_MAX;
+    q15_t output_amplitude_divider_ = Q15_MAX;
+    q15_t output_amplitude_multipler_ = Q15_MAX;
 
     AdsrEnv startup_env_;
 
@@ -292,19 +420,6 @@ private:
     };
     StartupEnvState startup_env_state_ = StartupEnvState::OUTPUT;
 
-    // Pots
-    enum class Pot
-    {
-        TEMPO,
-        INPUT,
-        LFO,
-        LFO_MOD,
-        OUTPUT,
-        RHYTHM,
-        MONO_INPUT,
-        SYNC_INPUT,
-        COUNT
-    };
     EnumArray<Pot, std::unique_ptr<FancyPot>> pots_;
 
     // MIDI Out Pot stuff
@@ -335,12 +450,25 @@ private:
     EnvelopeFollower input_envelope_follower_;
     size_t input_clipping_counter_ = 0;
 
+    // lfo mod destination change indication
+    static constexpr uint32_t kUiIndicateLfoModChangeTimeDark = s2alr(0.1f); // 100ms
+    static constexpr uint32_t kUiIndicateLfoModChangeTimeLight = s2alr(0.2f); // 200ms
+    uint32_t ui_lfo_mod_change_indication_counter_ = 0;
+    LfoMod::Destination ui_lfo_mod_last_destination_ = LfoMod::Destination::COUNT;
+    void IndicateLfoModDestChange();
+    void DecrementLfoModDestChangeCounter();
+    bool IsLfoModDestChangeActive();
+    uint32_t LfoModDestChangeColor();
+    bool cancel_midi_learn_tap_ = false;
+    EnumArray<LfoMod::Destination, bool> lfo_mod_selection_enabled_;
+    EnumArray<LfoMod::Destination, FancyPot *> lfo_mod_pots_{};
+
     // Settings stuff
     int32_t settings_pulse_ = 0;
     static constexpr int32_t kSettingsHysteresis = 40;
 
     // MIDI stuff
-    void MidiAdvancedSettings();
+    void MidiAdvancedSettings(bool cancel_learning = false, bool cancel_tapping = false);
     NumberFlasher midi_number_flasher_;
     uint32_t midi_channel_taps_ = 0;
     bool midi_channel_tapping_active = false;

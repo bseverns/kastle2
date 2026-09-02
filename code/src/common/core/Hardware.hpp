@@ -210,6 +210,8 @@ public:
         SHIFT,    ///< Shift button pressed
         MODE,     ///< Mode (Bank) button pressed
         SETTINGS, ///< When both Shift and Mode are held for a while
+        SETTINGS_SHIFT, ///< When in settings and Shift is held
+        SETTINGS_MODE,  ///< When in settings and Mode is held
         COUNT
     };
 
@@ -617,6 +619,15 @@ public:
     }
 
     /**
+     * @brief Returns maximum CV value for sample selection based on hardware version.
+     * @return ADC_4V for KASTLE2 (to reach last sample on AA batteries), ADC_5V for others (=CITADEL).
+     */
+    inline int32_t GetSafeCvMaxValue() const
+    {
+        return (GetVersion() == Hardware::Version::KASTLE2 ? ADC_4V : ADC_5V);
+    }
+
+    /**
      * @brief Returns the I2S driver instance.
      */
     I2S &GetI2S()
@@ -637,6 +648,9 @@ public:
 private:
     // I2S driver
     I2S i2s_;
+
+    // LEDs
+    WS2812 pixels_;
 
     // ADC stuff
     bool srand_active_ = false;

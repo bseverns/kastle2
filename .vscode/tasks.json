@@ -106,35 +106,41 @@
         },
         {
             "label": "build_all",
-            "type": "process",
-            "command": "make",
+            "type": "shell",
+            "command": "make -j\"$(sysctl -n hw.ncpu 2>/dev/null || nproc)\" all",
             "options": {
-                "cwd": "${workspaceRoot}/code/build"
+                "cwd": "${workspaceRoot}/code/build",
+                "shell": {
+                    "executable": "/bin/bash",
+                    "args": [
+                        "-c"
+                    ]
+                }
             },
             "presentation": {
                 "clear": true,
                 "showReuseMessage": false,
                 "group": "pico"
-            },
-            "args": [
-                "all"
-            ]
+            }
         },
         {
             "label": "build",
-            "type": "process",
-            "command": "make",
+            "type": "shell",
+            "command": "make -j\"$(sysctl -n hw.ncpu 2>/dev/null || nproc)\" ${input:target}",
             "options": {
-                "cwd": "${workspaceRoot}/code/build"
+                "cwd": "${workspaceRoot}/code/build",
+                "shell": {
+                    "executable": "/bin/bash",
+                    "args": [
+                        "-c"
+                    ]
+                }
             },
             "presentation": {
                 "clear": true,
                 "showReuseMessage": false,
                 "group": "pico"
-            },
-            "args": [
-                "${input:target}"
-            ]
+            }
         },
         {
             "label": "build_and_upload_usb",
@@ -159,6 +165,29 @@
                 "build",
                 "upload_picoprobe"
             ]
+        },
+        {
+            "label": "clean_and_generate_dev_builds",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "clean",
+                "build_all",
+                "generate_dev_builds"
+            ]
+        },
+        {
+            "label": "generate_dev_builds",
+            "type": "shell",
+            "command": "stamp=$(date +%Y%m%d-%H%M%S) && shopt -s nullglob && for file in kastle2-*.elf kastle2-*.hex kastle2-*.uf2; do [[ \"$file\" == *-dev-build-* ]] && continue; base=${file%.*}; ext=${file##*.}; cp \"$file\" \"${base}-dev-build-${stamp}.${ext}\"; done",
+            "options": {
+                "cwd": "${workspaceRoot}/code/build/output",
+                "shell": {
+                    "executable": "/bin/bash",
+                    "args": [
+                        "-c"
+                    ]
+                }
+            }
         },
         {
             "label": "make_docs",
